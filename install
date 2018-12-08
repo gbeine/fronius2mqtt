@@ -4,6 +4,7 @@ python3 -m venv .
 
 git clone https://github.com/gbeine/pyfronius.git
 
-source bin/activate
+. bin/activate
+pip install paho.mqtt pyyaml
 pip install -e pyfronius
 pip install -e fronius2mqtt
