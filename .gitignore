@@ -1,0 +1,8 @@
+__pycache__
+bin
+lib
+fronius2mqtt.bbprojectd
+pip-selfcheck.json
+pyvenv.cfg
+fronius2mqtt/fronius2mqtt.egg-info
+fronius2mqtt.yaml
