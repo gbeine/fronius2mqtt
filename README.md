@@ -9,5 +9,5 @@ A Fronius HTTP API to MQTT bridge
 
 ## Configuration
 
-- copy fronius2mqtt.yaml.example
+- copy ```fronius2mqtt.yaml.example```
 - configure as you like
