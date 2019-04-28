@@ -28,16 +28,19 @@ class Config:
 		if "mqtt" in config:
 			self._mqtt = config["mqtt"]
 		if not "host" in self._mqtt:
-				raise ValueError("MQTT host not set")
+			raise ValueError("MQTT host not set")
 		if not "port" in self._mqtt:
-				raise ValueError("MQTT port not set")
+			raise ValueError("MQTT port not set")
 		if not "user" in self._mqtt:
-				raise ValueError("MQTT user not set")
+			raise ValueError("MQTT user not set")
 		if not "password" in self._mqtt:
-				raise ValueError("MQTT password not set")
+			raise ValueError("MQTT password not set")
 		if not "topic" in self._mqtt:
-				raise ValueError("MQTT topic not set")
-				
+			raise ValueError("MQTT topic not set")
+		if not "qos" in self._mqtt:
+			self._mqtt["qos"] = 0
+		if not "retain" in self._mqtt:
+			self._mqtt["retain"] = False
 
 	def _parse_fronius(self, config):
 		"""Parse the fronius section of fronius2mqtt.yaml."""

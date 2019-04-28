@@ -4,6 +4,8 @@ mqtt:
     user: user
     password: secret
     topic: "mqtt/topic/for/fronius"
+    qos: 1
+    retain: true
 fronius:
     - inverter:
         host: "inverter.myfroniusfarm"

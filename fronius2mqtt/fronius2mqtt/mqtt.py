@@ -18,5 +18,5 @@ class Mqtt:
 
 	def publish(self, topic, payload):
 		topic = "{}/{}".format(self.config['topic'], topic)
-		logging.info("Publish %s: %s", topic, payload)
-		self.client.publish(topic, payload)
+		logging.info("Publish %s: %s, %s, %s", topic, payload, self._config["qos"], self._config["retain"])
+		self._client.publish(topic, payload, self._config["qos"], self._config["retain"])

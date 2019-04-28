@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='fronius2mqtt',
-      version='0.1',
+      version='0.2',
       description='Fronius 2 MQTT bridge',
       url='https://github.com/gbeine/fronius2mqtt',
       author='Gerrit',
