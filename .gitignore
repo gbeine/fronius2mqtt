@@ -1,8 +1,10 @@
 __pycache__
 bin
 lib
+share
 fronius2mqtt.bbprojectd
 pip-selfcheck.json
 pyvenv.cfg
+pyfronius
 fronius2mqtt/fronius2mqtt.egg-info
 fronius2mqtt.yaml
