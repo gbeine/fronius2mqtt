@@ -229,9 +229,9 @@ def parse_config():
         if 'mqtt_host' in data:
             daemon_args.mqtt_host = data['mqtt_host']
         if 'mqtt_port' in data:
-            daemon_args.mqtt_port = data['mqtt_port']
+            daemon_args.mqtt_port = int(data['mqtt_port'])
         if 'mqtt_keepalive' in data:
-            daemon_args.mqtt_keepalive = data['mqtt_keepalive']
+            daemon_args.mqtt_keepalive = int(data['mqtt_keepalive'])
         if 'mqtt_clientid' in data:
             daemon_args.mqtt_clientid = data['mqtt_clientid']
         if 'mqtt_user' in data:
@@ -243,7 +243,7 @@ def parse_config():
         if 'http_host' in data:
             daemon_args.http_host = data['http_host']
         if 'http_port' in data:
-            daemon_args.http_port = data['http_port']
+            daemon_args.http_port = int(data['http_port'])
         if 'verbose' in data:
             daemon_args.verbose = data['verbose']
 
