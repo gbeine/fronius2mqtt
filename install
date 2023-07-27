@@ -1,10 +1,8 @@
 #!/bin/sh
 
-python3 -m venv .
+python3 -m venv venv
 
-git clone https://github.com/gbeine/pyfronius.git
+. venv/bin/activate
 
-. bin/activate
-pip install wheel paho-mqtt pyyaml
-pip install -e pyfronius
-pip install -e fronius2mqtt
+pip install bottle
+pip install paho.mqtt

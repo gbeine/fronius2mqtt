@@ -1,10 +1,6 @@
-__pycache__
 bin
+include
 lib
 share
-fronius2mqtt.bbprojectd
-pip-selfcheck.json
 pyvenv.cfg
-pyfronius
-fronius2mqtt/fronius2mqtt.egg-info
-fronius2mqtt.yaml
+.DS_Store

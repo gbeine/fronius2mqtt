@@ -1,5 +1,12 @@
 # fronius2mqtt
+
 A Fronius HTTP API to MQTT bridge
+
+Attention: This is a complete rewrite of the bridge.
+While the old fronius2mqtt brigde used polling the inverters to fetch the  data, the new version make use of the push feature provided by Fronius Symo.
+
+The daemon offers no HTTP endpoints which can be configured in the configuration interface of each inverter.
+It forwards the data directly to MQTT.
 
 ## Install
 
@@ -9,5 +16,21 @@ A Fronius HTTP API to MQTT bridge
 
 ## Configuration
 
-- copy ```fronius2mqtt.yaml.example```
+Each configuration option is also available as command line argument.
+
+- copy ```fronius2mqtt.conf.example```
 - configure as you like
+
+| option         | default                  | arguments           | comment                                                            |
+|----------------|--------------------------|---------------------|--------------------------------------------------------------------|
+| mqtt_host      | 'localhost'              | -m, --mqtt_host     | The hostname of the MQTT server.                                   |
+| mqtt_port      | 1883                     | --mqtt_port         | The port of the MQTT server.                                       |
+| mqtt_keepalive | 30                       | --mqtt_keepalive    | The keep alive interval for the MQTT server connection in seconds. |
+| mqtt_clientid  | 'fronius2mqtt'           | --mqtt_clientid     | The clientid to send to the MQTT server.                           |
+| mqtt_user      | -                        | -u, --mqtt_user     | The username for the MQTT server connection.                       |
+| mqtt_password  | -                        | -p, --mqtt_password | The password for the MQTT server connection.                       |
+| mqtt_topic     | 'fronius'                | -t, --mqtt_topic    | The topic to publish MQTT message.                                 |
+| http_host      | 'localhost'              | --http_host         | The address of the HTTP server.                                    |
+| http_port      | 8080                     | --http_port         | The port of the HTTP server.                                       |
+| verbose        | -                        | -v, --verbose       | Be verbose while running.                                          |
+| -              | '/etc/fronius2mqtt.conf' | -c, --config        | The path to the config file.                                       |

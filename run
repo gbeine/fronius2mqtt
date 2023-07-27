@@ -1,7 +1,5 @@
 #!/bin/sh
 
-touch ${LOGDIR}/.tmpfs
+. venv/bin/activate
 
-. bin/activate
-
-exec bin/fronius2mqtt
+exec /usr/bin/env python fronius2mqtt
