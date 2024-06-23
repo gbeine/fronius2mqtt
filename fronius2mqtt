@@ -2,7 +2,9 @@
 
 import argparse
 import json
+import logging
 import os
+import ssl
 import paho.mqtt.client as mqtt
 
 from bottle import request, route, post, run
@@ -10,6 +12,18 @@ from bottle import request, route, post, run
 
 mqtt_client = None
 daemon_args = None
+
+verify_mode = {
+    'CERT_NONE': ssl.CERT_NONE,
+    'CERT_OPTIONAL': ssl.CERT_OPTIONAL,
+    'CERT_REQUIRED': ssl.CERT_REQUIRED
+}
+
+tls_versions = {
+    'TLSv1': ssl.PROTOCOL_TLSv1,
+    'TLSv1.1': ssl.PROTOCOL_TLSv1_1,
+    'TLSv1.2': ssl.PROTOCOL_TLSv1_2
+}
 
 
 def extract_request_body():
@@ -26,7 +40,7 @@ def extract_request_data():
 
 @route('/')
 def index():
-    return "Hello World!"
+    return "Hello World!<br/>This is the fronius2mqtt daemon by Gerrit Beine"
 
 
 @post('/current_data_inverter/<device>')
@@ -162,8 +176,12 @@ def logdata_data(device):
 
 def start_mqtt():
     global daemon_args
-    mqtt_client = mqtt.Client(daemon_args.mqtt_clientid)
+    mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    cert_reqs = verify_mode[daemon_args.mqtt_verify_mode] if daemon_args.mqtt_verify_mode in verify_mode else None
+    tls_version = tls_versions[daemon_args.mqtt_tls_version] if daemon_args.mqtt_tls_version in tls_versions else None
+    mqtt_client.tls_set(cert_reqs=cert_reqs,tls_version=tls_version)
     if daemon_args.verbose:
+        logging.basicConfig(level=logging.DEBUG)
         mqtt_client.enable_logger()
     if daemon_args.mqtt_user is not None and daemon_args.mqtt_password is not None:
         mqtt_client.username_pw_set(daemon_args.mqtt_user, daemon_args.mqtt_password)
@@ -201,6 +219,21 @@ def parse_args():
     parser.add_argument('-t', '--mqtt_topic', type=str,
             default='fronius',
             help='The topic to publish MQTT message. Default is fronius')
+    parser.add_argument('--mqtt_tls_version', type=str,
+            default='TLSv1.2',
+            help='The TLS version to use for MQTT. One of TLSv1, TLSv1.1, TLSv1.2. Default is TLSv1.2')
+    parser.add_argument('--mqtt_verify_mode', type=str,
+            default='CERT_REQUIRED',
+            help='The SSL certificate verification mode. One of CERT_NONE, CERT_OPTIONAL, CERT_REQUIRED. Default is CERT_REQUIRED')
+    # TODO
+    # parser.add_argument('--mqtt_ca_cert', type=str,
+    #         help='The path to the SSL CA certificate. Optional, no default')
+    # parser.add_argument('--mqtt_certfile', type=str,
+    #         help='The path to the SSL certificate file. Optional, no default')
+    # parser.add_argument('--mqtt_keyfile', type=str,
+    #         help='The path to the SSL key file. Optional, no default')
+    # parser.add_argument('--mqtt_keyfile_password', type=str,
+    #         help='The path to the SSL key password. Optional, no default')
     parser.add_argument('--http_host', type=str,
             default='localhost',
             help='The address of the HTTP server. Default is localhost')
@@ -240,6 +273,19 @@ def parse_config():
             daemon_args.mqtt_password = data['mqtt_password']
         if 'mqtt_topic' in data:
             daemon_args.mqtt_topic = data['mqtt_topic']
+        if 'mqtt_tls_version' in data:
+            daemon_args.mqtt_tls_version = data['mqtt_tls_version']
+        if 'mqtt_verify_mode' in data:
+            daemon_args.mqtt_verify_mode = data['mqtt_verify_mode']
+        # TODO
+        # if 'mqtt_ca_cert' in data:
+        #     daemon_args.mqtt_ca_cert = data['mqtt_ca_cert']
+        # if 'mqtt_certfile' in data:
+        #     daemon_args.mqtt_certfile = data['mqtt_certfile']
+        # if 'mqtt_keyfile' in data:
+        #     daemon_args.mqtt_keyfile = data['mqtt_keyfile']
+        # if 'mqtt_keyfile_password' in data:
+        #     daemon_args.mqtt_keyfile_password = data['mqtt_keyfile_password']
         if 'http_host' in data:
             daemon_args.http_host = data['http_host']
         if 'http_port' in data:
