@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import ssl
+import time
 import paho.mqtt.client as mqtt
 
 from bottle import request, route, post, run
@@ -38,6 +39,12 @@ def extract_request_data():
     return data
 
 
+def publish(topic, payload):
+    mqtt_client.publish(topic, payload)
+    if daemon_args.timestamp:
+        mqtt_client.publish("{}/timestamp".format(topic), time.time(), retain=True)
+
+
 @route('/')
 def index():
     return "Hello World!<br/>This is the fronius2mqtt daemon by Gerrit Beine"
@@ -52,19 +59,19 @@ def current_data_inverter(device):
     if 'PAC' in data['Body'] and 'Values' in data['Body']['PAC']:
         for k, v in data['Body']['PAC']['Values'].items():
             topic = "{}/pac/{}".format(topic_base, k)
-            mqtt_client.publish(topic, v)
+            publish(topic, v)
     if 'DAY_ENERGY' in data['Body'] and 'Values' in data['Body']['DAY_ENERGY']:
         for k, v in data['Body']['DAY_ENERGY']['Values'].items():
             topic = "{}/day_energy/{}".format(topic_base, k)
-            mqtt_client.publish(topic, v)
+            publish(topic, v)
     if 'YEAR_ENERGY' in data['Body'] and 'Values' in data['Body']['YEAR_ENERGY']:
         for k, v in data['Body']['YEAR_ENERGY']['Values'].items():
             topic = "{}/year_energy/{}".format(topic_base, k)
-            mqtt_client.publish(topic, v)
+            publish(topic, v)
     if 'TOTAL_ENERGY' in data['Body'] and 'Values' in data['Body']['TOTAL_ENERGY']:
         for k, v in data['Body']['TOTAL_ENERGY']['Values'].items():
             topic = "{}/total_energy/{}".format(topic_base, k)
-            mqtt_client.publish(topic, v)
+            publish(topic, v)
     return "OK"
 
 
@@ -78,7 +85,7 @@ def current_data_meter(device):
         for k, v in d.items():
             if v is not None and type(v) in [int, float, str] :
                 topic = "{}/{}/{}".format(topic_base, m, k.lower())
-                mqtt_client.publish(topic, v)
+                publish(topic, v)
     return "OK"
 
 
@@ -92,13 +99,13 @@ def current_data_powerflow(device):
         for k, v in data['Body']['Site'].items():
             if v is not None:
                 topic = "{}/site/{}".format(topic_base, k.lower())
-                mqtt_client.publish(topic, v)
+                publish(topic, v)
     if 'Inverters' in data['Body']:
         for i, d in data['Body']['Inverters'].items():
             for k, v in d.items():
                 if v is not None:
                     topic = "{}/{}/{}".format(topic_base, i, k.lower())
-                    mqtt_client.publish(topic, v)
+                    publish(topic, v)
     return "OK"
 
 
@@ -113,14 +120,14 @@ def current_data_storages(device):
             for k, v in d['Controller'].items():
                 if v is not None and type(v) in [int, float, str] :
                     topic = "{}/{}/{}".format(topic_base, s, k.lower())
-                    mqtt_client.publish(topic, v)
+                    publish(topic, v)
         if 'Modules' in d:
             for m in d['Modules']:
                 serial = m['Details']['Serial']
                 for k, v in m.items():
                     if v is not None and type(v) in [int, float, str] :
                         topic = "{}/{}/{}/{}".format(topic_base, s, serial.lower(), k.lower())
-                        mqtt_client.publish(topic, v)
+                        publish(topic, v)
     return "OK"
 
 
@@ -152,7 +159,7 @@ def datamanager_io_states(device):
         for k, v in d.items():
             if v is not None:
                 topic = "{}/{}/{}".format(topic_base, p.replace(' ', '_'), k.lower())
-                mqtt_client.publish(topic, v)
+                publish(topic, v)
     return "OK"
 
 
@@ -243,6 +250,10 @@ def parse_args():
     parser.add_argument('-c', '--config', type=str,
             default='/etc/fronius2mqtt.conf',
             help='The path to the config file. Default is /etc/fronius2mqtt.conf')
+    parser.add_argument('-z', '--timestamp',
+            default=False,
+            action='store_true',
+            help='Publish timestamps for all topics, e.g. for monitoring purposes.')
     parser.add_argument('-v', '--verbose',
             default=False,
             action='store_true',
@@ -290,6 +301,8 @@ def parse_config():
             daemon_args.http_host = data['http_host']
         if 'http_port' in data:
             daemon_args.http_port = int(data['http_port'])
+        if 'timestamp' in data:
+            daemon_args.timestamp = data['timestamp']
         if 'verbose' in data:
             daemon_args.verbose = data['verbose']
 
