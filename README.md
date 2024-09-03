@@ -1,6 +1,4 @@
-# fronius2mqtt
-
-A Fronius HTTP API to MQTT bridge
+# fronius2mqtt - A Fronius HTTP API to MQTT bridge
 
 Attention: This is a complete rewrite of the bridge.
 While the old fronius2mqtt brigde used polling the inverters to fetch the  data, the new version make use of the push feature provided by Fronius Symo.

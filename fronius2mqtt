@@ -186,7 +186,7 @@ def start_mqtt():
     mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     cert_reqs = verify_mode[daemon_args.mqtt_verify_mode] if daemon_args.mqtt_verify_mode in verify_mode else None
     tls_version = tls_versions[daemon_args.mqtt_tls_version] if daemon_args.mqtt_tls_version in tls_versions else None
-    mqtt_client.tls_set(cert_reqs=cert_reqs,tls_version=tls_version)
+    mqtt_client.tls_set(cert_reqs=cert_reqs, tls_version=tls_version)
     if daemon_args.verbose:
         logging.basicConfig(level=logging.DEBUG)
         mqtt_client.enable_logger()
