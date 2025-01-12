@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import os
+import signal
 import ssl
 import time
 import paho.mqtt.client as mqtt
@@ -308,17 +309,35 @@ def parse_config():
             daemon_args.verbose = data['verbose'].lower() == 'true'
 
 
+def shutdown(signum, frame):
+    global mqtt_client
+    logging.info('Shutdown...')
+    if mqtt_client is not None:
+        logging.info('Stopping MQTT')
+        mqtt_client.loop_stop()
+        mqtt_client.disconnect()
+    logging.info('Bye!')
+    exit(0)
+
+
 def main():
     global daemon_args, mqtt_client
+
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
+
     # Configuration
     daemon_args = parse_args()
     parse_config()
+
     # Verbosity
     if daemon_args.verbose:
         logging.basicConfig(level=logging.DEBUG)
+
     # MQTT connection
     mqtt_client = init_mqtt()
     mqtt_client.loop_start()
+
     # HTTP server
     start_http()
 
