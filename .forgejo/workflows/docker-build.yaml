@@ -1,0 +1,38 @@
+name: docker-build
+
+on:
+  push:
+
+jobs:
+  build:
+    runs-on: docker
+    container:
+      image: node:22-alpine
+      env:
+        DOCKER_HOST: ${{ vars.DOCKER_HOST }}
+    steps:
+      - name: Install docker
+        run: |
+          apk add --no-cache docker
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: c0d3.sh
+          username: ${{ vars.C0D3SH_USERNAME }}
+          password: ${{ secrets.C0D3SH_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          platforms: linux/amd64,linux/arm64,linux/arm/v6,linux/arm/v7
+          push: true
+          tags: c0d3.sh/smarthome/fronius2mqtt:latest
+          secrets: |
+            GIT_AUTH_TOKEN=${{ secrets.C0D3SH_TOKEN }}
