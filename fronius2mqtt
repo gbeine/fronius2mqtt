@@ -1,33 +1,20 @@
 #!/usr/bin/env python
+from os import device_encoding
 
-import argparse
+import aiohttp
+import asyncio
 import json
 import logging
-import os
-import signal
-import ssl
+import pyfronius
 import time
-import paho.mqtt.client as mqtt
+
+import iot_daemonize
+import iot_daemonize.configuration as configuration
 
 from bottle import request, route, post, run
+from typing import Any, Callable, Dict, Final, Iterable, List, Tuple, Union
 
-
-verify_mode = {
-    'CERT_NONE': ssl.CERT_NONE,
-    'CERT_OPTIONAL': ssl.CERT_OPTIONAL,
-    'CERT_REQUIRED': ssl.CERT_REQUIRED
-}
-
-tls_versions = {
-    'TLSv1': ssl.PROTOCOL_TLSv1,
-    'TLSv1.1': ssl.PROTOCOL_TLSv1_1,
-    'TLSv1.2': ssl.PROTOCOL_TLSv1_2
-}
-
-
-mqtt_client = None
-daemon_args = None
-
+config = None
 
 def extract_request_body():
     body = request.body
@@ -41,15 +28,17 @@ def extract_request_data():
     return data
 
 
-def publish(topic, payload):
-    mqtt_client.publish(topic, payload)
-    if daemon_args.timestamp:
-        mqtt_client.publish("{}/timestamp".format(topic), time.time(), retain=True)
-
-
 @route('/')
 def index():
     return "Hello World!<br/>This is the fronius2mqtt daemon by Gerrit Beine"
+
+@post('/current_data_powerflow/<device>')
+def current_data_powerflow(device):
+    data = extract_request_data()
+    if not 'Body' in data:
+        return "Empty"
+    _power_flow(data['Body'], device)
+    return "OK"
 
 
 @post('/current_data_inverter/<device>')
@@ -57,23 +46,7 @@ def current_data_inverter(device):
     data = extract_request_data()
     if not 'Body' in data:
         return "Empty"
-    topic_base = "{}/{}/current_data_inverter".format(daemon_args.mqtt_topic, device)
-    if 'PAC' in data['Body'] and 'Values' in data['Body']['PAC']:
-        for k, v in data['Body']['PAC']['Values'].items():
-            topic = "{}/pac/{}".format(topic_base, k)
-            publish(topic, v)
-    if 'DAY_ENERGY' in data['Body'] and 'Values' in data['Body']['DAY_ENERGY']:
-        for k, v in data['Body']['DAY_ENERGY']['Values'].items():
-            topic = "{}/day_energy/{}".format(topic_base, k)
-            publish(topic, v)
-    if 'YEAR_ENERGY' in data['Body'] and 'Values' in data['Body']['YEAR_ENERGY']:
-        for k, v in data['Body']['YEAR_ENERGY']['Values'].items():
-            topic = "{}/year_energy/{}".format(topic_base, k)
-            publish(topic, v)
-    if 'TOTAL_ENERGY' in data['Body'] and 'Values' in data['Body']['TOTAL_ENERGY']:
-        for k, v in data['Body']['TOTAL_ENERGY']['Values'].items():
-            topic = "{}/total_energy/{}".format(topic_base, k)
-            publish(topic, v)
+    _current_data_inverter(data['Body'], device)
     return "OK"
 
 
@@ -82,32 +55,7 @@ def current_data_meter(device):
     data = extract_request_data()
     if not 'Body' in data:
         return "Empty"
-    topic_base = "{}/{}/current_data_meter".format(daemon_args.mqtt_topic, device)
-    for m, d in data['Body'].items():
-        for k, v in d.items():
-            if v is not None and type(v) in [int, float, str] :
-                topic = "{}/{}/{}".format(topic_base, m, k.lower())
-                publish(topic, v)
-    return "OK"
-
-
-@post('/current_data_powerflow/<device>')
-def current_data_powerflow(device):
-    data = extract_request_data()
-    if not 'Body' in data:
-        return "Empty"
-    topic_base = "{}/{}/current_data_powerflow".format(daemon_args.mqtt_topic, device)
-    if 'Site' in data['Body']:
-        for k, v in data['Body']['Site'].items():
-            if v is not None:
-                topic = "{}/site/{}".format(topic_base, k.lower())
-                publish(topic, v)
-    if 'Inverters' in data['Body']:
-        for i, d in data['Body']['Inverters'].items():
-            for k, v in d.items():
-                if v is not None:
-                    topic = "{}/{}/{}".format(topic_base, i, k.lower())
-                    publish(topic, v)
+    _current_data_meter(data['Body'], device)
     return "OK"
 
 
@@ -116,20 +64,7 @@ def current_data_storages(device):
     data = extract_request_data()
     if not 'Body' in data:
         return "Empty"
-    topic_base = "{}/{}/current_data_storages".format(daemon_args.mqtt_topic, device)
-    for s, d in data['Body'].items():
-        if 'Controller' in d:
-            for k, v in d['Controller'].items():
-                if v is not None and type(v) in [int, float, str] :
-                    topic = "{}/{}/{}".format(topic_base, s, k.lower())
-                    publish(topic, v)
-        if 'Modules' in d:
-            for m in d['Modules']:
-                serial = m['Details']['Serial']
-                for k, v in m.items():
-                    if v is not None and type(v) in [int, float, str] :
-                        topic = "{}/{}/{}/{}".format(topic_base, s, serial.lower(), k.lower())
-                        publish(topic, v)
+    _current_data_storages(data['Body'], device)
     return "OK"
 
 
@@ -138,7 +73,7 @@ def current_data_sensorcard(device):
     data = extract_request_data()
     if not 'Body' in data:
         return "Empty"
-    topic_base = "{}/{}/current_data_sensorcard".format(daemon_args.mqtt_topic, device)
+    topic_base = "{}/{}/current_data_sensorcard".format(config.mqtt_topic, device)
 # TODO not yet implemented
     return "OK"
 
@@ -148,7 +83,7 @@ def current_data_stringcontrol(device):
     data = extract_request_data()
     if not 'Body' in data:
         return "Empty"
-    topic_base = "{}/{}/current_data_stringcontrol".format(daemon_args.mqtt_topic, device)
+    topic_base = "{}/{}/current_data_stringcontrol".format(config.mqtt_topic, device)
 # TODO not yet implemented
     return "OK"
 
@@ -156,12 +91,12 @@ def current_data_stringcontrol(device):
 @post('/datamanager_io_states/<device>')
 def datamanager_io_states(device):
     data = extract_request_data()
-    topic_base = "{}/{}/datamanager_io_states".format(daemon_args.mqtt_topic, device)
+    topic_base = "{}/{}/datamanager_io_states".format(config.mqtt_topic, device)
     for p, d in data.items():
         for k, v in d.items():
             if v is not None:
                 topic = "{}/{}/{}".format(topic_base, p.replace(' ', '_'), k.lower())
-                publish(topic, v)
+                iot_daemonize.mqtt_client.publish(topic, v)
     return "OK"
 
 
@@ -170,7 +105,7 @@ def logdata_errors_and_events(device):
     data = extract_request_data()
     if not 'Body' in data:
         return "Empty"
-    topic_base = "{}/{}/logdata_errors_and_events".format(daemon_args.mqtt_topic, device)
+    topic_base = "{}/{}/logdata_errors_and_events".format(config.mqtt_topic, device)
     return "OK"
 
 
@@ -179,167 +114,160 @@ def logdata_data(device):
     data = extract_request_data()
     if not 'Body' in data:
         return "Empty"
-    topic_base = "{}/{}/logdata_data".format(daemon_args.mqtt_topic, device)
+    topic_base = "{}/{}/logdata_data".format(config.mqtt_topic, device)
     return "OK"
 
 
-def init_mqtt():
-    logging.debug('Starting MQTT')
-    global daemon_args
-    mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, daemon_args.mqtt_clientid)
-    if daemon_args.mqtt_tls:
-        cert_reqs = verify_mode[daemon_args.mqtt_verify_mode] if daemon_args.mqtt_verify_mode in verify_mode else None
-        tls_version = tls_versions[daemon_args.mqtt_tls_version] if daemon_args.mqtt_tls_version in tls_versions else None
-        ca_certs = daemon_args.mqtt_ssl_ca_path if daemon_args.mqtt_ssl_ca_path else None
-        mqtt_client.tls_set(ca_certs=ca_certs, cert_reqs=cert_reqs, tls_version=tls_version)
-        mqtt_client.tls_insecure_set(daemon_args.mqtt_tls_no_verify)
-    if daemon_args.verbose:
-        mqtt_client.enable_logger()
-    if daemon_args.mqtt_user is not None and daemon_args.mqtt_password is not None:
-        mqtt_client.username_pw_set(daemon_args.mqtt_user, daemon_args.mqtt_password)
-    mqtt_client.connect(daemon_args.mqtt_host, daemon_args.mqtt_port, daemon_args.mqtt_keepalive)
-    return mqtt_client
+def _power_flow(data: Dict[str, Any], device: str):
+    topic_base = "{}/{}/current_data_powerflow".format(config.mqtt_topic, device)
+    if 'Site' in data:
+        for k, v in data['Site'].items():
+            if v is not None:
+                topic = "{}/site/{}".format(topic_base, k.lower())
+                iot_daemonize.mqtt_client.publish(topic, v)
+    if 'Inverters' in data:
+        for i, d in data['Inverters'].items():
+            for k, v in d.items():
+                if v is not None:
+                    topic = "{}/{}/{}".format(topic_base, i, k.lower())
+                    iot_daemonize.mqtt_client.publish(topic, v)
 
 
-def start_http():
-    global daemon_args
-    run(host=daemon_args.http_host, port=daemon_args.http_port, debug=daemon_args.verbose)
+def _current_data_inverter(data: Dict[str, Any], device: str):
+    topic_base = "{}/{}/current_data_inverter".format(config.mqtt_topic, device)
+    if 'PAC' in data and 'Values' in data['PAC']:
+        for k, v in data['PAC']['Values'].items():
+            topic = "{}/pac/{}".format(topic_base, k)
+            iot_daemonize.mqtt_client.publish(topic, v)
+    if 'DAY_ENERGY' in data and 'Values' in data['DAY_ENERGY']:
+        for k, v in data['DAY_ENERGY']['Values'].items():
+            topic = "{}/day_energy/{}".format(topic_base, k)
+            iot_daemonize.mqtt_client.publish(topic, v)
+    if 'YEAR_ENERGY' in data and 'Values' in data['YEAR_ENERGY']:
+        for k, v in data['YEAR_ENERGY']['Values'].items():
+            topic = "{}/year_energy/{}".format(topic_base, k)
+            iot_daemonize.mqtt_client.publish(topic, v)
+    if 'TOTAL_ENERGY' in data and 'Values' in data['TOTAL_ENERGY']:
+        for k, v in data['TOTAL_ENERGY']['Values'].items():
+            topic = "{}/total_energy/{}".format(topic_base, k)
+            iot_daemonize.mqtt_client.publish(topic, v)
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-            prog='fronius2mqtt',
-            description='Send the data from Fronius HTTP push to MQTT',
-            epilog='Have a lot of fun!')
-    parser.add_argument('-m', '--mqtt_host', type=str,
-            default='localhost',
-            help='The hostname of the MQTT server. Default is localhost')
-    parser.add_argument('--mqtt_port', type=int,
-            default=1883,
-            help='The port of the MQTT server. Default is 1883')
-    parser.add_argument('--mqtt_keepalive', type=int,
-            default=30,
-            help='The keep alive interval for the MQTT server connection in seconds. Default is 30')
-    parser.add_argument('--mqtt_clientid', type=str,
-            default='fronius2mqtt',
-            help='The clientid to send to the MQTT server. Default is fronius2mqtt')
-    parser.add_argument('-u', '--mqtt_user', type=str,
-            help='The username for the MQTT server connection.')
-    parser.add_argument('-p', '--mqtt_password', type=str,
-            help='The password for the MQTT server connection.')
-    parser.add_argument('-t', '--mqtt_topic', type=str,
-            default='fronius',
-            help='The topic to publish MQTT message. Default is fronius')
-    parser.add_argument('--mqtt_tls',
-            default=False,
-            action='store_true',
-            help='Use SSL/TLS encryption for MQTT connection.')
-    parser.add_argument('--mqtt_tls_version', type=str,
-            default='TLSv1.2',
-            help='The TLS version to use for MQTT. One of TLSv1, TLSv1.1, TLSv1.2. Default is TLSv1.2')
-    parser.add_argument('--mqtt_verify_mode', type=str,
-            default='CERT_REQUIRED',
-            help='The SSL certificate verification mode. One of CERT_NONE, CERT_OPTIONAL, CERT_REQUIRED. Default is CERT_REQUIRED')
-    parser.add_argument('--mqtt_ssl_ca_path', type=str,
-            help='The SSL certificate authority file to verify the MQTT server.')
-    parser.add_argument('--mqtt_tls_no_verify',
-            default=False,
-            action='store_true',
-            help='Do not verify SSL/TLS constraints like hostname.')
-    parser.add_argument('--http_host', type=str,
-            default='localhost',
-            help='The address of the HTTP server. Default is localhost')
-    parser.add_argument('--http_port', type=int,
-            default=8080,
-            help='The port of the HTTP server. Default is 8080')
-    parser.add_argument('-z', '--timestamp',
-            default=False,
-            action='store_true',
-            help='Publish timestamps for all topics, e.g. for monitoring purposes.')
-    parser.add_argument('-c', '--config', type=str,
-            default='/etc/fronius2mqtt.conf',
-            help='The path to the config file. Default is /etc/fronius2mqtt.conf')
-    parser.add_argument('-v', '--verbose',
-            default=False,
-            action='store_true',
-            help='Be verbose while running.')
-    args = parser.parse_args()
-    return args
+def _current_data_meter(data: Dict[str, Any], device: str):
+    topic_base = "{}/{}/current_data_meter".format(config.mqtt_topic, device)
+    for m, d in data.items():
+        for k, v in d.items():
+            if v is not None and type(v) in [int, float, str] :
+                topic = "{}/{}/{}".format(topic_base, m, k.lower())
+                iot_daemonize.mqtt_client.publish(topic, v)
 
 
-def parse_config():
-    global daemon_args
+def _current_data_storages(data: Dict[str, Any], device: str):
+    topic_base = "{}/{}/current_data_storages".format(config.mqtt_topic, device)
+    for s, d in data.items():
+        if 'Controller' in d:
+            for k, v in d['Controller'].items():
+                if v is not None and type(v) in [int, float, str] :
+                    topic = "{}/{}/{}".format(topic_base, s, k.lower())
+                    iot_daemonize.mqtt_client.publish(topic, v)
+        if 'Modules' in d:
+            for m in d['Modules']:
+                serial = m['Details']['Serial']
+                for k, v in m.items():
+                    if v is not None and type(v) in [int, float, str] :
+                        topic = "{}/{}/{}/{}".format(topic_base, s, serial.lower(), k.lower())
+                        iot_daemonize.mqtt_client.publish(topic, v)
 
-    if not os.path.isfile(daemon_args.config):
+
+def pull_fronius(stop):
+    global config
+    if config.devices is None:
         return
-
-    with open(daemon_args.config, "r") as config_file:
-        data = json.load(config_file)
-        if 'mqtt_host' in data:
-            daemon_args.mqtt_host = data['mqtt_host']
-        if 'mqtt_port' in data:
-            daemon_args.mqtt_port = int(data['mqtt_port'])
-        if 'mqtt_keepalive' in data:
-            daemon_args.mqtt_keepalive = int(data['mqtt_keepalive'])
-        if 'mqtt_clientid' in data:
-            daemon_args.mqtt_clientid = data['mqtt_clientid']
-        if 'mqtt_user' in data:
-            daemon_args.mqtt_user = data['mqtt_user']
-        if 'mqtt_password' in data:
-            daemon_args.mqtt_password = data['mqtt_password']
-        if 'mqtt_topic' in data:
-            daemon_args.mqtt_topic = data['mqtt_topic']
-        if 'mqtt_tls' in data:
-            daemon_args.mqtt_tls = data['mqtt_tls'].lower() == 'true'
-        if 'mqtt_tls_version' in data:
-            daemon_args.mqtt_tls_version = data['mqtt_tls_version']
-        if 'mqtt_verify_mode' in data:
-            daemon_args.mqtt_verify_mode = data['mqtt_verify_mode']
-        if 'mqtt_ssl_ca_path' in data:
-            daemon_args.mqtt_ssl_ca_path = data['mqtt_ssl_ca_path']
-        if 'mqtt_tls_no_verify' in data:
-            daemon_args.mqtt_tls_no_verify = data['mqtt_tls_no_verify'].lower() == 'true'
-        if 'http_host' in data:
-            daemon_args.http_host = data['http_host']
-        if 'http_port' in data:
-            daemon_args.http_port = int(data['http_port'])
-        if 'timestamp' in data:
-            daemon_args.timestamp = data['timestamp'].lower() == 'true'
-        if 'verbose' in data:
-            daemon_args.verbose = data['verbose'].lower() == 'true'
+    loop = asyncio.new_event_loop()
+    for device in config.devices:
+        loop.create_task(pull_fronius_async(loop, device, stop))
+    loop.run_forever()
 
 
-def shutdown(signum, frame):
-    global mqtt_client
-    logging.info('Shutdown...')
-    if mqtt_client is not None:
-        logging.info('Stopping MQTT')
-        mqtt_client.loop_stop()
-        mqtt_client.disconnect()
-    logging.info('Bye!')
-    exit(0)
+async def pull_fronius_async(loop, device, stop):
+    async with aiohttp.ClientSession(loop=loop) as session:
+        while not stop():
+            fronius = pyfronius.Fronius(session, device['host'])
+
+            if 'power_flow' in device and device['power_flow']:
+                def power_flow_callback(data: Dict[str, Any]) -> Dict[str, Any]:
+                    _power_flow(data, device['device'])
+                    return pyfronius.Fronius._system_power_flow(data)
+
+                res = await fronius.current_power_flow(power_flow_callback)
+
+            if 'system_meter' in device and device['system_meter']:
+                def system_meter_callback(data: Dict[str, Any]) -> Dict[str, Any]:
+                    _current_data_meter(data, device['device'])
+                    return pyfronius.Fronius._system_meter_data(data)
+
+                res = await fronius.current_system_meter_data(system_meter_callback)
+
+            if 'system_inverter' in device and device['system_inverter']:
+                def system_inverter_callback(data: Dict[str, Any]) -> Dict[str, Any]:
+                    _current_data_inverter(data, device['device'])
+                    return pyfronius.Fronius._system_inverter_data(data)
+
+                res = await fronius.current_system_inverter_data(system_inverter_callback)
+
+            if 'system_storage' in device and device['system_storage']:
+                def system_storage_callback(data: Dict[str, Any]) -> Dict[str, Any]:
+                    _current_data_storages(data, device['device'])
+                    return pyfronius.Fronius._system_storage_data(data)
+
+                res = await fronius.current_system_storage_data(system_storage_callback)
+
+# TODO not yet implemented
+            # if 'active_device_info' in device and device['active_device_info']:
+            #     def power_flow_callback(data: Dict[str, Any]) -> Dict[str, Any]:
+            #         _power_flow(data, device['device'])
+            #         return pyfronius.Fronius._system_active_device_info(data)
+            #     res = await fronius.current_active_device_info()
+            # if 'inverter_info' in device and device['inverter_info']
+            # if 'logger_info' in device and device['logger_info']
+            # if 'system_ohmpilot' in device and device['system_ohmpilot'],
+            # if 'device_meter' in device and type(device['device_meter']) is list
+            # if 'device_storage' in device and type(device['device_storage']) is list
+            # if 'device_inverter' in device and type(device['device_inverter']) is list
+
+            time.sleep(5)
+        print("Stopping pull_fronius_async for {}".format(device['host']))
+
+
+def http_server(stop):
+    run(server=iot_daemonize.http_server)
 
 
 def main():
-    global daemon_args, mqtt_client
+    global config
 
-    signal.signal(signal.SIGINT, shutdown)
-    signal.signal(signal.SIGTERM, shutdown)
+    config = configuration.MqttDaemonConfiguration(program ='fronius2mqtt', description ='Send the data from Fronius HTTP push and pull to MQTT')
+    config.add_config_arg('iot_daemonize.mqtt_clientid', flags='--iot_daemonize.mqtt_clientid', default='fronius2mqtt',
+                     help='The clientid to send to the MQTT server. Default is fronius2mqtt.')
+    config.add_config_arg('mqtt_topic', flags='--mqtt_topic', default='fronius',
+                     help='The topic to publish MQTT message. Default is fronius.')
+    config.add_config_arg('http_host', flags='--http_host', default='localhost',
+                     help='The address of the HTTP server. Default is localhost.')
+    config.add_config_arg('http_port', flags='--http_port', default=8080,
+                     help='The port of the HTTP server. Default is 8080.')
+    config.add_config_arg('config', flags=['-c', '--config'], default='/etc/fronius2mqtt.conf',
+                     help='The path to the config file. Default is /etc/fronius2mqtt.conf.')
+    config.add_config_arg('devices',
+                     help='The Fronius devices fetch data using the HTTP API.')
+    config.parse_args()
+    config.parse_config(config.config)
 
-    # Configuration
-    daemon_args = parse_args()
-    parse_config()
+    iot_daemonize.init(config, mqtt = True, http = True, daemonize = True)
 
-    # Verbosity
-    if daemon_args.verbose:
-        logging.basicConfig(level=logging.DEBUG)
+    iot_daemonize.daemon.add_task(pull_fronius)
+    iot_daemonize.daemon.add_task(http_server)
 
-    # MQTT connection
-    mqtt_client = init_mqtt()
-    mqtt_client.loop_start()
-
-    # HTTP server
-    start_http()
+    iot_daemonize.run()
 
 
 if __name__ == "__main__":

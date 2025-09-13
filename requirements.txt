@@ -1,3 +1,5 @@
 # Python requirements
 bottle
+iot-daemonize
 paho-mqtt
+pyfronius
