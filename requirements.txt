@@ -2,4 +2,4 @@
 bottle
 iot-daemonize
 paho-mqtt
-pyfronius
+pyfronius >= 0.8.1
